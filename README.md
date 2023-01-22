@@ -1,1 +1,1 @@
-# alternatives | [![codecov](https://codecov.io/gh/redhat-plumbers/alternatives/branch/main/graph/badge.svg?token=vCqFlhpR8T)](https://codecov.io/gh/redhat-plumbers/alternatives)
+# alternatives | [![Rust CI](https://github.com/redhat-plumbers/alternatives/actions/workflows/rust.yml/badge.svg)](https://github.com/redhat-plumbers/alternatives/actions/workflows/rust.yml) [![codecov](https://codecov.io/gh/redhat-plumbers/alternatives/branch/main/graph/badge.svg?token=vCqFlhpR8T)](https://codecov.io/gh/redhat-plumbers/alternatives)
