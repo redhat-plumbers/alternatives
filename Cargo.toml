@@ -10,4 +10,4 @@ edition = "2021"
 [dev-dependencies]
 
 # command exevution
-assert_cmd = "2.0.10"
+assert_cmd = "2.0.11"
