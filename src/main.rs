@@ -10,16 +10,14 @@ struct Follower {
 }
 
 // Converts the vector of string returned byt the parser to vector of followers.
-// NOTE: the resulting vecotr is reversed
 // NOTE: Does not check, whether the length of the input is a multiple of 3, the parser should provide an input of the proper length, but some further check here might be appropriate
 fn unwrap_followers(arg: &Vec<String>) -> Vec<Follower>{
     let mut rv = Vec::new();
-    let mut arg = arg.clone();
-    while !arg.is_empty()
+    for chunk in arg.chunks(3)
     {
-        let path = arg.pop().unwrap();
-        let name = arg.pop().unwrap();
-        let link = arg.pop().unwrap();
+        let path = chunk[0].clone();
+        let name = chunk[1].clone();
+        let link = chunk[2].clone();
         rv.push(Follower{link, name, path});
     }
     rv
@@ -126,7 +124,6 @@ fn main() {
         Commands::Install {ref link,ref name,ref path,ref priority,ref follower, ref initscript} => {
             println!("In the Install Brannch!");
             let followers = unwrap_followers(follower);
-            //TODO: just for debuging
             println!("{:?}",followers);
             println!("Verbose: {:?}",cli.verbose);
 
