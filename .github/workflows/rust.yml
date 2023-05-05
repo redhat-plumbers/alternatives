@@ -129,6 +129,8 @@ jobs:
       - name: Install required cargo
         run: cargo install clippy-sarif sarif-fmt
 
+      # Clippy doesn't return non-zero exit code on error
+      # https://github.com/rust-lang/rust-clippy/issues/1209
       - name: Run Clippy
         continue-on-error: true
         run: >
@@ -136,6 +138,12 @@ jobs:
           --no-deps
           --all-features
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+
+      - name: Upload artifact with Clippy defects in SARIF format
+        uses: actions/upload-artifact@v3
+        with:
+          name: Cargo Clippy SARIF
+          path: rust-clippy-results.sarif
 
       - name: Upload analysis results to GitHub
         uses: github/codeql-action/upload-sarif@v2
