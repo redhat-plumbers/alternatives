@@ -23,7 +23,7 @@ fn unwrap_followers(arg: &Vec<String>) -> Vec<Follower> {
 }
 
 //Based on https://linux.die.net/man/8/alternatives
-// TODO add aliases for some now obsolate commands
+// TODO add aliases for some now obsolete commands
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// TODO: Help text goes here
@@ -102,7 +102,7 @@ fn main() {
             ref follower,
             ref initscript,
         } => {
-            println!("In the Install Brannch!");
+            println!("In the Install Branch!");
             let followers = unwrap_followers(follower);
             println!("{:?}", followers);
             println!("Verbose: {:?}", cli.verbose);
