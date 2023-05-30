@@ -1,10 +1,11 @@
 use assert_cmd::Command;
 
 #[test]
-fn alternatives_bad_no_parameters() -> Result<(), Box<dyn std::error::Error>> {
+fn alternatives_no_parameters() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("alternatives")?;
 
-    cmd.assert().failure().code(2).stderr("Usage: alternatives [OPTIONS] <COMMAND>
+    cmd.assert().failure().code(2).stderr(
+"Usage: alternatives [OPTIONS] <COMMAND>
 
 Commands:
   install, --install  TODO: Help text goes here
@@ -24,6 +25,26 @@ Options:
   -h, --help                  Print help
   -V, --version               Print version
 ");
+
+    Ok(())
+}
+
+#[test]
+fn alternatives_install_no_parameters() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("alternatives")?;
+
+    cmd.arg("install").assert().failure().code(2).stderr(
+        "error: the following required arguments were not provided:
+  <LINK>
+  <NAME>
+  <PATH>
+  <PRIORITY>
+
+Usage: alternatives {install|--install} <LINK> <NAME> <PATH> <PRIORITY> [INITSCRIPT]
+
+For more information, try '--help'.
+",
+    );
 
     Ok(())
 }

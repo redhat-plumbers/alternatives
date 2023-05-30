@@ -1,7 +1,5 @@
 use clap::{Parser, Subcommand};
 
-//type Follower = String;
-
 #[derive(Debug, Clone)]
 struct Follower {
     link: String,
@@ -11,13 +9,15 @@ struct Follower {
 
 // Converts the vector of string returned byt the parser to vector of followers.
 // NOTE: Does not check, whether the length of the input is a multiple of 3, the parser should provide an input of the proper length, but some further check here might be appropriate
-fn unwrap_followers(arg: &Vec<String>) -> Vec<Follower> {
+fn unwrap_followers(arg: &[String]) -> Vec<Follower> {
     let mut rv = Vec::new();
+
     for chunk in arg.chunks(3) {
-        let path = chunk[0].clone();
-        let name = chunk[1].clone();
-        let link = chunk[2].clone();
-        rv.push(Follower { link, name, path });
+        rv.push(Follower {
+            link: chunk[0].clone(),
+            name: chunk[1].clone(),
+            path: chunk[2].clone(),
+        });
     }
     rv
 }
