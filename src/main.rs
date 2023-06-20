@@ -38,7 +38,7 @@ enum Commands {
         /// TODO: Help text goes here
         priority: i32,
         /// TODO: Help text goes here
-        #[arg(long, num_args=3, value_names=["LINK", "NAME", "PATH"])]
+        #[arg(long, num_args=3, alias="slave", value_names=["LINK", "NAME", "PATH"])]
         follower: Vec<String>,
         /// TODO: Help text goes here
         initscript: Option<String>,
@@ -103,6 +103,7 @@ fn main() {
             ref initscript,
         } => {
             println!("In the Install Branch!");
+            println!("Name: {:?}, Path: {:?}", name, path);
             let followers = unwrap_followers(follower);
             println!("{:?}", followers);
             println!("Verbose: {:?}", cli.verbose);
