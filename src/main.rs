@@ -119,9 +119,10 @@ fn group_to_builtin (drop_in: AlternativeGroup) -> AlternativeGroup {
  */
 
 //reads a single DB file and returns a list of of structs for each NAME entry
-fn read_config(path: String) {
-    let content = Value::String(fs::read_to_string(path).expect("File error"));
-    let rv: AlternativeGroup = serde_yaml::from_value(content).unwrap();
+fn read_config(path: String) -> Vec<AlternativeGroup> {
+    let content = (fs::read_to_string(path).expect("File error"));
+    let rv: Vec<AlternativeGroup> = serde_yaml::from_str(content.as_str()).expect("Parse error");
+    return rv;
 }
 
 fn write_config(path: String, content: &[&AlternativeGroup]) -> std::io::Result<()>{
@@ -218,13 +219,18 @@ fn main() {
             println!("Name: {:?}, Path: {:?}", name, path);
             let followers = unwrap_followers(follower);
             let alt = create_alternative(link.to_string(),path.to_string(),*priority,followers);
-            let alts = group_to_builtin (create_dropin (name.to_string(), [alt.clone()].to_vec()));
-
+            let alts = (create_dropin (name.to_string(), [alt.clone()].to_vec()));
             let res = serde_yaml::to_string(&[&alts]);
             write_config("/tmp/foo".to_string(), &[&alts]);
             println!("{:?}", alt);
             println!("{:?}", res);
             println!("Verbose: {:?}", cli.verbose);
+        }
+        Commands::Display {
+            ref name,
+        } => {
+            let content = read_config("/tmp/foo".to_string());
+            println!("{:?}", content);
         }
         Commands::Remove { ref name, ref path } => {
             println!("In the remove Branch!");
