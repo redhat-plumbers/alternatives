@@ -105,6 +105,15 @@ fn alternative_group_get_name (arg: &AlternativeGroup) -> String {
     return rv.clone();
 }
 
+fn alternative_group_get_alternatives (arg: &AlternativeGroup) -> Vec<Alternative> {
+
+    let rv = match arg {
+        AlternativeGroup::DropIn (group) => &group.alternatives,
+        AlternativeGroup::BuiltIn (group) => &group.alternatives,
+    };
+    return rv.clone();
+}
+
 fn alternative_group_cmp_name (fst: AlternativeGroup, snd: AlternativeGroup) -> bool
 {
     let f = match fst {
@@ -119,6 +128,12 @@ fn alternative_group_cmp_name (fst: AlternativeGroup, snd: AlternativeGroup) -> 
     return f == s;
 }
 
+// target/link_name -> same as ln command
+fn create_symlinks (target: String, link_name: String) {
+    //TODO - just debug function for now, no changes to the files on the disk
+    println!("Making link: {:?} -> {:?}",link_name,target);
+
+}
 /*
  *
 # naming based on: https://linux.die.net/man/8/alternatives# generic name for the group/maste symlink
@@ -166,6 +181,32 @@ fn read_dropins(path: String) -> Vec<AlternativeGroup>{
     return rv.iter().map(|x| group_to_dropin(x.clone())).collect::<Vec<_>>();
 }
 
+/*
+ * 1. filter the alternative groups by name
+ * 2. if there are multiple alternative groups with a same name, merge them into one
+ */
+fn merge_dropins(name: String, groups: Vec<AlternativeGroup>) -> AlternativeGroup {
+    let mut rv = create_dropin(name.clone(),Vec::new());
+    for a_g in groups {
+        if alternative_group_get_name(&a_g) == name {
+            for alt in alternative_group_get_alternatives(&a_g) {
+                append_alternative(&mut rv,alt);
+            }
+        }
+    }
+    return rv;
+}
+
+fn filter_buildins(name: String, groups: Vec<AlternativeGroup>) -> AlternativeGroup {
+    let mut rv = create_builtin(name.clone(),Vec::new());
+    for a_g in groups {
+        if alternative_group_get_name(&a_g) == name {
+            rv = a_g.clone();
+        }
+    }
+    return rv;
+}
+
 //reads a single DB file and returns a list of of structs for each NAME entry
 fn read_config(path: String) -> Vec<AlternativeGroup> {
     let content = fs::read_to_string(path).expect("File error");
@@ -185,8 +226,6 @@ struct ConfigFile {
     modified: bool
 }
 
-fn read_db () {
-}
 
 fn write_db (files: Vec<ConfigFile>) -> std::io::Result<()> {
     for file in files {
@@ -196,10 +235,6 @@ fn write_db (files: Vec<ConfigFile>) -> std::io::Result<()> {
     }
     Ok(())
 
-}
-
-// add an alternative to the ones read from the db
-fn add_alternative(){
 }
 
 //Based on https://linux.die.net/man/8/alternatives
@@ -231,7 +266,7 @@ enum Commands {
     Set { name: String, path: String },
     /// TODO: Help text goes here
     #[command(long_flag = "auto")]
-    Auto { name: String, path: String },
+    Auto { name: String },
     /// TODO: Help text goes here
     #[command(long_flag = "display")]
     Display { name: String },
@@ -319,14 +354,15 @@ fn main() {
 
             }
             write_config(BUILT_IN_DB_PATH.to_string(),built_in_db);
+            // if the alternative group is se to auto - check the priorites and update the symlinks
         }
         Commands::Display {
             ref name,
         } => {
             let builtins = read_config(BUILT_IN_DB_PATH.to_string());
-            println!("Built in:\n {:?}", builtins);
+            println!("Built in:\n {:?}", filter_buildins(name.to_string(), builtins));
             let dropins = read_dropins(DROP_IN_DIR_PATH.to_string());
-            println!("Drop ins:\n {:?}", dropins);
+            println!("Drop ins:\n {:?}", merge_dropins(name.to_string(), dropins));
         }
         Commands::Remove { ref name, ref path } => {
             println!("In the remove Branch!");
