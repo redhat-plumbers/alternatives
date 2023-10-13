@@ -1,9 +1,12 @@
 use clap::{Parser, Subcommand};
 use serde::{Serialize, Deserialize};
-use serde_yaml::Value;
+//use serde_yaml::Value;
 use std::fs;
-use std::fs::File;
-use std::io::Write;
+//use std::fs::File;
+//use std::io::Write;
+
+const BUILT_IN_DB_PATH: &str = "/tmp/alts.yaml";
+const DROP_IN_DIR_PATH: &str = "/tmp/dropins";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Follower {
@@ -26,17 +29,6 @@ fn unwrap_followers(arg: &[String]) -> Vec<Follower> {
     }
     rv
 }
-
-// The following two structs form the content of the the DB files.
-// FIXME Rename these two structs to something more descriptive
-// This structure stores a singel alternative
-/*#[derive(Serialize,Deserialize,Debug,Clone)]
-struct Alternative {
-    link:  String,
-    path:  String,
-    priority:  i32,
-    followers: Option<Vec<Follower>>
-}*/
 
 
 #[derive(Serialize,Deserialize,Debug,Clone)]
@@ -77,11 +69,54 @@ fn create_dropin (name: String, alternatives: Vec<Alternative>) -> AlternativeGr
     return AlternativeGroup::DropIn(DropIn {name, alternatives});
 }
 
-fn group_to_builtin (drop_in: AlternativeGroup) -> AlternativeGroup {
-    match drop_in {
+fn create_builtin (name: String, alternatives: Vec<Alternative>) -> AlternativeGroup {
+    let aux = AlternativeGroup::DropIn(DropIn {name, alternatives});
+    return group_to_builtin(aux);
+}
+
+fn group_to_builtin (a_g: AlternativeGroup) -> AlternativeGroup {
+    match a_g {
         AlternativeGroup::DropIn (group) => return AlternativeGroup::BuiltIn(BuiltIn {name : group.name, mode : "Auto".to_string(), manualPath : "".to_string(),  alternatives : group.alternatives}),
         AlternativeGroup::BuiltIn (group) => return AlternativeGroup::BuiltIn(BuiltIn {name : group.name, mode : group.mode, manualPath : group.manualPath, alternatives : group.alternatives}),
     }
+}
+
+fn group_to_dropin (a_g: AlternativeGroup) -> AlternativeGroup {
+    match a_g {
+        AlternativeGroup::BuiltIn (group) => return AlternativeGroup::DropIn(DropIn {name : group.name, alternatives : group.alternatives}),
+        _ => return a_g,
+    }
+}
+
+fn append_alternative (ag: &mut AlternativeGroup, alt: Alternative) -> &AlternativeGroup{
+    match ag {
+        AlternativeGroup::DropIn (group) => group.alternatives.push(alt),
+        AlternativeGroup::BuiltIn (group) => group.alternatives.push(alt),
+    }
+    return ag;
+}
+
+fn alternative_group_get_name (arg: &AlternativeGroup) -> String {
+
+    let rv = match arg {
+        AlternativeGroup::DropIn (group) => &group.name,
+        AlternativeGroup::BuiltIn (group) => &group.name,
+    };
+    return rv.clone();
+}
+
+fn alternative_group_cmp_name (fst: AlternativeGroup, snd: AlternativeGroup) -> bool
+{
+    let f = match fst {
+        AlternativeGroup::DropIn (group) => group.name,
+        AlternativeGroup::BuiltIn (group) => group.name,
+    };
+    let s = match snd {
+        AlternativeGroup::DropIn (group) => group.name,
+        AlternativeGroup::BuiltIn (group) => group.name,
+    };
+
+    return f == s;
 }
 
 /*
@@ -118,17 +153,49 @@ fn group_to_builtin (drop_in: AlternativeGroup) -> AlternativeGroup {
  *
  */
 
+//Read the content of FS directory and return the read alternatives
+fn read_dropins(path: String) -> Vec<AlternativeGroup>{
+    let mut rv = Vec::new();
+    for file in fs::read_dir(path).expect("Dir error") {
+        let file_path = file.expect("TODO error").path();
+        let content = fs::read_to_string(file_path).expect("TODO File error");
+        let mut config: Vec<AlternativeGroup> = serde_yaml::from_str(content.as_str()).expect("Parse error");
+        rv.append(&mut config);
+    }
+
+    return rv.iter().map(|x| group_to_dropin(x.clone())).collect::<Vec<_>>();
+}
+
 //reads a single DB file and returns a list of of structs for each NAME entry
 fn read_config(path: String) -> Vec<AlternativeGroup> {
-    let content = (fs::read_to_string(path).expect("File error"));
+    let content = fs::read_to_string(path).expect("File error");
     let rv: Vec<AlternativeGroup> = serde_yaml::from_str(content.as_str()).expect("Parse error");
     return rv;
 }
 
-fn write_config(path: String, content: &[&AlternativeGroup]) -> std::io::Result<()>{
-    let yaml = serde_yaml::to_string(content).expect("Parsing error");
+fn write_config(path: String, content: Vec<AlternativeGroup>) -> std::io::Result<()>{
+    let yaml = serde_yaml::to_string(&content).expect("Parsing error");
     fs::write(path,yaml.as_bytes()).expect("Writing to file");
     Ok(())
+}
+
+struct ConfigFile {
+    path: String,
+    content: Vec<AlternativeGroup>,
+    modified: bool
+}
+
+fn read_db () {
+}
+
+fn write_db (files: Vec<ConfigFile>) -> std::io::Result<()> {
+    for file in files {
+        if file.modified == true {
+            write_config (file.path, file.content);
+        }
+    }
+    Ok(())
+
 }
 
 // add an alternative to the ones read from the db
@@ -215,22 +282,51 @@ fn main() {
             ref follower,
             ref initscript,
         } => {
+            /*
+             * 1. Parse the arguments
+             * 2. Read the builtin DB file
+             * 3. Append new alternative to the builtin DB file
+             * 4. Write the modified DB file, if the the alternative group is set to manual then end else:
+             * 5. Run the quivalent of the AUTO branch
+             */
             println!("In the Install Branch!");
             println!("Name: {:?}, Path: {:?}", name, path);
+            //Parse the arguments
             let followers = unwrap_followers(follower);
             let alt = create_alternative(link.to_string(),path.to_string(),*priority,followers);
-            let alts = (create_dropin (name.to_string(), [alt.clone()].to_vec()));
-            let res = serde_yaml::to_string(&[&alts]);
-            write_config("/tmp/foo".to_string(), &[&alts]);
-            println!("{:?}", alt);
-            println!("{:?}", res);
-            println!("Verbose: {:?}", cli.verbose);
+            //Read the bultin DB file
+            let mut built_in_db = read_config(BUILT_IN_DB_PATH.to_string());
+            //Find the correct alternative group
+
+            let mut done = false;
+
+            // check whether the alternative group with given name already exists and update it
+            // Maybe TODO check for duplicit entries in the same alternative group
+            for a_g in &mut built_in_db {
+                if alternative_group_get_name(&a_g) == name.to_string() {
+                    println!("Alternative Group Found!: {:?}", a_g);
+                    append_alternative (a_g, alt.clone());
+                    done = true;
+                    break;
+                }
+            }
+
+            // this is a new alternative group = create it and append it
+            if done == false {
+                let new_alt_group = create_builtin(name.to_string(), [alt.clone()].to_vec());
+                built_in_db.push(new_alt_group);
+                println!("Alternative Group Not Found!: {:?}", built_in_db);
+
+            }
+            write_config(BUILT_IN_DB_PATH.to_string(),built_in_db);
         }
         Commands::Display {
             ref name,
         } => {
-            let content = read_config("/tmp/foo".to_string());
-            println!("{:?}", content);
+            let builtins = read_config(BUILT_IN_DB_PATH.to_string());
+            println!("Built in:\n {:?}", builtins);
+            let dropins = read_dropins(DROP_IN_DIR_PATH.to_string());
+            println!("Drop ins:\n {:?}", dropins);
         }
         Commands::Remove { ref name, ref path } => {
             println!("In the remove Branch!");
