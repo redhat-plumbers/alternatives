@@ -44,19 +44,21 @@ enum Alternative {
 }
 
 impl Alternative {
-    fn path (&self) -> &String {
+    fn get_path (&self) -> &String {
         match self {
             Alternative::WithoutFollowers (alt) => return &alt.path,
             Alternative::WithFollowers (alt) => return &alt.path,
         }
     }
-    fn link (&self) -> &String {
+
+    fn get_link (&self) -> &String {
         match self {
             Alternative::WithoutFollowers (alt) => return &alt.link,
             Alternative::WithFollowers (alt) => return &alt.link,
         }
     }
-    fn priority (&self) -> i32 {
+
+    fn get_priority (&self) -> i32 {
         match self {
             Alternative::WithoutFollowers (alt) => return alt.priority,
             Alternative::WithFollowers (alt) => return alt.priority,
@@ -69,9 +71,25 @@ impl Alternative {
             _ => return Alternative::WithFollowers(WithFollowers {link, path, priority, followers}),
         }
     }
+
+    //TODO might need a name parameter too
+    fn create_links (&self) -> Vec<(String,String)> {
+        let mut rv = Vec::new();
+        match self {
+            Alternative::WithoutFollowers (alt) => {
+                rv.push((alt.link.clone(),alt.path.clone())); //TODO change the order of arguments
+            },
+            Alternative::WithFollowers (alt) => {
+                rv.push((alt.link.clone(),alt.path.clone())); //TODO change the order of arguments
+                for follower in &alt.followers {
+                    rv.push((follower.link.clone(),follower.path.clone())); //TODO change the order of arguments
+                }
+
+            },
+        }
+        return rv.clone();
+    }
 }
-
-
 
 #[derive(Serialize,Deserialize,Debug,Clone)]
 struct BuiltIn {name: String, mode: String, manualPath: String, alternatives: Vec<Alternative>}
@@ -118,6 +136,14 @@ impl AlternativeGroup {
         }
     }
 
+    fn get_mode (&self) -> String {
+        let rv = match self {
+            AlternativeGroup::DropIn (_) => "Auto".to_string(),
+            AlternativeGroup::BuiltIn (group) => group.mode.clone(),
+        };
+        return rv.clone();
+    }
+
     fn get_name (&self) -> String {
         let rv = match self {
             AlternativeGroup::DropIn (group) => &group.name,
@@ -134,7 +160,7 @@ impl AlternativeGroup {
         return rv.clone();
     }
 
-    fn alternative_group_cmp_name (&self, other: &AlternativeGroup) -> bool {
+    fn cmp_name (&self, other: &AlternativeGroup) -> bool {
         return self.get_name() == other.get_name();
     }
 
@@ -183,7 +209,7 @@ fn create_symlinks (target: String, link_name: String) {
  */
 
 //Read the content of FS directory and return the read alternatives
-fn read_dropins(path: String) -> Vec<AlternativeGroup>{
+fn read_dropins(path: &String) -> Vec<AlternativeGroup>{
     let mut rv = Vec::new();
     for file in fs::read_dir(path).expect("Dir error") {
         let file_path = file.expect("TODO error").path();
@@ -199,49 +225,95 @@ fn read_dropins(path: String) -> Vec<AlternativeGroup>{
  * 1. filter the alternative groups by name
  * 2. if there are multiple alternative groups with a same name, merge them into one
  */
-fn merge_dropins(name: String, groups: Vec<AlternativeGroup>) -> AlternativeGroup {
+fn merge_dropins(name: &String, groups: Vec<AlternativeGroup>) -> Option<AlternativeGroup> {
     let mut rv = AlternativeGroup::new_dropin(name.clone(),Vec::new());
+    let mut found = false;
     for a_g in groups {
-        if a_g.get_name() == name {
+        if a_g.get_name() == *name {
             for alt in a_g.get_alternatives() {
                 rv.append_alternative(alt);
+                found = true;
             }
         }
     }
-    return rv;
+    if found == true {
+        return Some(rv);
+    }
+    else {
+        return None;
+    }
 }
 
-fn filter_buildins(name: String, groups: Vec<AlternativeGroup>) -> AlternativeGroup {
-    let mut rv = AlternativeGroup::new_builtin(name.clone(),Vec::new());
+fn filter_buildins(name: &String, groups: Vec<AlternativeGroup>) -> Option<AlternativeGroup> {
     for a_g in groups {
-        if a_g.get_name() == name {
-            rv = a_g.clone();
+        if a_g.get_name() == *name {
+            return Some(a_g.clone());
         }
     }
-    return rv;
+    return None;
 }
 
 /*
  * Returns the alternative with highest priority
  * If the list of alternatives is empty returns none
- * Undefined behavior when there are multiple alternatives with the smae prio
+ * Undefined behavior when there are multiple alternatives with the same prio
  */
-fn highest_prio(alts: Vec<Alternative>) -> Option<Alternative> {
-    if alts.len() == 0 {
+fn highest_prio(alts: &Vec<Alternative>) -> Option<&Alternative> {
+    if let Some ((head, tail)) = alts.split_first() {
+        let mut rv = head;
+        for alt in tail {
+            if alt.get_priority() >= rv.get_priority(){
+                if alt.get_priority() == rv.get_priority(){
+                    //TODO print warning
+                } else {
+                    rv = alt;
+                }
+            }
+        }
+        return Some(rv);
+    } else {
         return None;
     }
-    return None;
+}
 
+/*
+ * This is a top level function that deals with symlink updates for an alternative group set to auto
+ * 1. read the config files, if there's no match in hte builtin file, create a new alternative group
+ *
+ */
+fn auto_update (name: &String, buildins_path: &String, dropins_path: &String) {
+    let builtins = filter_buildins(name, read_config(buildins_path));
+    let dropins = merge_dropins(name, read_dropins(dropins_path));
+    match builtins {
+        None => {panic!("Reached the unreachable!");} //This should be unreachable branch
+        Some(builtin) => {
+            if builtin.get_mode().to_lowercase() == "auto".to_string() {
+                let mut alternatives = builtin.get_alternatives();
+                if let Some(dropins) = dropins { // are there any dropins?
+                    alternatives.append(&mut dropins.get_alternatives()); //append them
+                }
+                println!("List of all alternatives (Builtins + dropins): {:?}",alternatives); //TODO debug text
+                let best_alt = highest_prio(&alternatives);
+                for (fst,snd) in best_alt.expect("No alternative found for the alternative group").create_links() {
+                    create_symlinks(fst,snd);
+                }
+            }
+            else {
+                //do nothing - group is set to manual
+            }
+
+        }
+    }
 }
 
 //reads a single DB file and returns a list of of structs for each NAME entry
-fn read_config(path: String) -> Vec<AlternativeGroup> {
+fn read_config(path: &String) -> Vec<AlternativeGroup> {
     let content = fs::read_to_string(path).expect("File error");
     let rv: Vec<AlternativeGroup> = serde_yaml::from_str(content.as_str()).expect("Parse error");
     return rv;
 }
 
-fn write_config(path: String, content: Vec<AlternativeGroup>) -> std::io::Result<()>{
+fn write_config(path: &String, content: Vec<AlternativeGroup>) -> std::io::Result<()>{
     let yaml = serde_yaml::to_string(&content).expect("Parsing error");
     fs::write(path,yaml.as_bytes()).expect("Writing to file");
     Ok(())
@@ -253,16 +325,17 @@ struct ConfigFile {
     modified: bool
 }
 
-
+//TODO unused function?
 fn write_db (files: Vec<ConfigFile>) -> std::io::Result<()> {
     for file in files {
         if file.modified == true {
-            write_config (file.path, file.content);
+            write_config (&file.path, file.content);
         }
     }
     Ok(())
 
 }
+
 
 //Based on https://linux.die.net/man/8/alternatives
 // TODO add aliases for some now obsolete commands
@@ -357,7 +430,7 @@ fn main() {
             let followers = unwrap_followers(follower);
             let alt = Alternative::new(link.to_string(),path.to_string(),*priority,followers);
             //Read the bultin DB file
-            let mut built_in_db = read_config(BUILT_IN_DB_PATH.to_string());
+            let mut built_in_db = read_config(&BUILT_IN_DB_PATH.to_string());
             //Find the correct alternative group
 
             let mut done = false;
@@ -366,7 +439,7 @@ fn main() {
             // Maybe TODO check for duplicit entries in the same alternative group
             for a_g in &mut built_in_db {
                 if a_g.get_name() == name.to_string() {
-                    println!("Alternative Group Found!: {:?}", a_g);
+                    println!("Alternative Group Found!: {:?}", a_g); // TODO debug
                     a_g.append_alternative (alt.clone());
                     done = true;
                     break;
@@ -377,19 +450,24 @@ fn main() {
             if done == false {
                 let new_alt_group = AlternativeGroup::new_builtin(name.to_string(), [alt.clone()].to_vec());
                 built_in_db.push(new_alt_group);
-                println!("Alternative Group Not Found!: {:?}", built_in_db);
+                println!("Alternative Group Not Found!: {:?}", built_in_db); //TODO debug
 
             }
-            write_config(BUILT_IN_DB_PATH.to_string(),built_in_db);
+            write_config(&BUILT_IN_DB_PATH.to_string(),built_in_db);
             // if the alternative group is se to auto - check the priorites and update the symlinks
+            auto_update(name, &BUILT_IN_DB_PATH.to_string(), &DROP_IN_DIR_PATH.to_string());
         }
         Commands::Display {
             ref name,
         } => {
-            let builtins = read_config(BUILT_IN_DB_PATH.to_string());
-            println!("Built in:\n {:?}", filter_buildins(name.to_string(), builtins));
-            let dropins = read_dropins(DROP_IN_DIR_PATH.to_string());
-            println!("Drop ins:\n {:?}", merge_dropins(name.to_string(), dropins));
+            let builtins = read_config(&BUILT_IN_DB_PATH.to_string());
+            println!("Built ins:\n {:?}", filter_buildins(name, builtins));
+            let dropins = read_dropins(&DROP_IN_DIR_PATH.to_string());
+            println!("Drop ins:\n {:?}", merge_dropins(name, dropins));
+        }
+        Commands::Auto { ref name} => {
+            println!("In the Auto Branch!");
+            auto_update(name, &BUILT_IN_DB_PATH.to_string(), &DROP_IN_DIR_PATH.to_string());
         }
         Commands::Remove { ref name, ref path } => {
             println!("In the remove Branch!");
