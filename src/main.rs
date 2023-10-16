@@ -43,12 +43,34 @@ enum Alternative {
     WithoutFollowers(WithoutFollowers),
 }
 
-fn create_alternative (link: String, path: String, priority: i32, followers: Vec<Follower>) -> Alternative{
-    match  followers.len() {
-        0 => return Alternative::WithoutFollowers(WithoutFollowers {link, path, priority}),
-        _ => return Alternative::WithFollowers(WithFollowers {link, path, priority, followers}),
+impl Alternative {
+    fn path (&self) -> &String {
+        match self {
+            Alternative::WithoutFollowers (alt) => return &alt.path,
+            Alternative::WithFollowers (alt) => return &alt.path,
+        }
+    }
+    fn link (&self) -> &String {
+        match self {
+            Alternative::WithoutFollowers (alt) => return &alt.link,
+            Alternative::WithFollowers (alt) => return &alt.link,
+        }
+    }
+    fn priority (&self) -> i32 {
+        match self {
+            Alternative::WithoutFollowers (alt) => return alt.priority,
+            Alternative::WithFollowers (alt) => return alt.priority,
+        }
+    }
+
+    fn new (link: String, path: String, priority: i32, followers: Vec<Follower>) -> Alternative {
+        match  followers.len() {
+            0 => return Alternative::WithoutFollowers(WithoutFollowers {link, path, priority}),
+            _ => return Alternative::WithFollowers(WithFollowers {link, path, priority, followers}),
+        }
     }
 }
+
 
 
 #[derive(Serialize,Deserialize,Debug,Clone)]
@@ -64,69 +86,61 @@ enum AlternativeGroup {
     DropIn  (DropIn),
 }
 
+impl AlternativeGroup {
 
-fn create_dropin (name: String, alternatives: Vec<Alternative>) -> AlternativeGroup {
-    return AlternativeGroup::DropIn(DropIn {name, alternatives});
-}
-
-fn create_builtin (name: String, alternatives: Vec<Alternative>) -> AlternativeGroup {
-    let aux = AlternativeGroup::DropIn(DropIn {name, alternatives});
-    return group_to_builtin(aux);
-}
-
-fn group_to_builtin (a_g: AlternativeGroup) -> AlternativeGroup {
-    match a_g {
-        AlternativeGroup::DropIn (group) => return AlternativeGroup::BuiltIn(BuiltIn {name : group.name, mode : "Auto".to_string(), manualPath : "".to_string(),  alternatives : group.alternatives}),
-        AlternativeGroup::BuiltIn (group) => return AlternativeGroup::BuiltIn(BuiltIn {name : group.name, mode : group.mode, manualPath : group.manualPath, alternatives : group.alternatives}),
+    fn to_builtin (&self) -> AlternativeGroup {
+        match self {
+            AlternativeGroup::DropIn (group) => return AlternativeGroup::BuiltIn(BuiltIn {name : group.name.clone(), mode : "Auto".to_string(), manualPath : "".to_string(),  alternatives : group.alternatives.clone()}),
+            AlternativeGroup::BuiltIn (group) => return AlternativeGroup::BuiltIn(BuiltIn {name : group.name.clone(), mode : group.mode.clone(), manualPath : group.manualPath.clone(), alternatives : group.alternatives.clone()}),
+        }
     }
-}
 
-fn group_to_dropin (a_g: AlternativeGroup) -> AlternativeGroup {
-    match a_g {
-        AlternativeGroup::BuiltIn (group) => return AlternativeGroup::DropIn(DropIn {name : group.name, alternatives : group.alternatives}),
-        _ => return a_g,
+    fn to_dropin (&self) -> AlternativeGroup {
+        match self {
+            AlternativeGroup::BuiltIn (group) => return AlternativeGroup::DropIn(DropIn {name : group.name.clone(), alternatives : group.alternatives.clone()}),
+            _ => return self.clone(),
+        }
     }
-}
 
-fn append_alternative (ag: &mut AlternativeGroup, alt: Alternative) -> &AlternativeGroup{
-    match ag {
-        AlternativeGroup::DropIn (group) => group.alternatives.push(alt),
-        AlternativeGroup::BuiltIn (group) => group.alternatives.push(alt),
+    fn new_dropin (name: String, alternatives: Vec<Alternative>) -> AlternativeGroup {
+        return AlternativeGroup::DropIn(DropIn {name, alternatives});
     }
-    return ag;
+
+    fn new_builtin (name: String, alternatives: Vec<Alternative>) -> AlternativeGroup {
+        let aux = AlternativeGroup::new_dropin(name, alternatives);
+        return aux.to_builtin();
+    }
+
+    fn append_alternative (&mut self, alt: Alternative) {
+        match self {
+            AlternativeGroup::DropIn (group) => group.alternatives.push(alt),
+            AlternativeGroup::BuiltIn (group) => group.alternatives.push(alt),
+        }
+    }
+
+    fn get_name (&self) -> String {
+        let rv = match self {
+            AlternativeGroup::DropIn (group) => &group.name,
+            AlternativeGroup::BuiltIn (group) => &group.name,
+        };
+        return rv.clone();
+    }
+
+    fn get_alternatives (&self) -> Vec<Alternative> {
+        let rv = match self {
+            AlternativeGroup::DropIn (group) => &group.alternatives,
+            AlternativeGroup::BuiltIn (group) => &group.alternatives,
+        };
+        return rv.clone();
+    }
+
+    fn alternative_group_cmp_name (&self, other: &AlternativeGroup) -> bool {
+        return self.get_name() == other.get_name();
+    }
+
 }
 
-fn alternative_group_get_name (arg: &AlternativeGroup) -> String {
 
-    let rv = match arg {
-        AlternativeGroup::DropIn (group) => &group.name,
-        AlternativeGroup::BuiltIn (group) => &group.name,
-    };
-    return rv.clone();
-}
-
-fn alternative_group_get_alternatives (arg: &AlternativeGroup) -> Vec<Alternative> {
-
-    let rv = match arg {
-        AlternativeGroup::DropIn (group) => &group.alternatives,
-        AlternativeGroup::BuiltIn (group) => &group.alternatives,
-    };
-    return rv.clone();
-}
-
-fn alternative_group_cmp_name (fst: AlternativeGroup, snd: AlternativeGroup) -> bool
-{
-    let f = match fst {
-        AlternativeGroup::DropIn (group) => group.name,
-        AlternativeGroup::BuiltIn (group) => group.name,
-    };
-    let s = match snd {
-        AlternativeGroup::DropIn (group) => group.name,
-        AlternativeGroup::BuiltIn (group) => group.name,
-    };
-
-    return f == s;
-}
 
 // target/link_name -> same as ln command
 fn create_symlinks (target: String, link_name: String) {
@@ -178,7 +192,7 @@ fn read_dropins(path: String) -> Vec<AlternativeGroup>{
         rv.append(&mut config);
     }
 
-    return rv.iter().map(|x| group_to_dropin(x.clone())).collect::<Vec<_>>();
+    return rv.iter().map(|x| x.to_dropin()).collect::<Vec<_>>();
 }
 
 /*
@@ -186,11 +200,11 @@ fn read_dropins(path: String) -> Vec<AlternativeGroup>{
  * 2. if there are multiple alternative groups with a same name, merge them into one
  */
 fn merge_dropins(name: String, groups: Vec<AlternativeGroup>) -> AlternativeGroup {
-    let mut rv = create_dropin(name.clone(),Vec::new());
+    let mut rv = AlternativeGroup::new_dropin(name.clone(),Vec::new());
     for a_g in groups {
-        if alternative_group_get_name(&a_g) == name {
-            for alt in alternative_group_get_alternatives(&a_g) {
-                append_alternative(&mut rv,alt);
+        if a_g.get_name() == name {
+            for alt in a_g.get_alternatives() {
+                rv.append_alternative(alt);
             }
         }
     }
@@ -198,13 +212,26 @@ fn merge_dropins(name: String, groups: Vec<AlternativeGroup>) -> AlternativeGrou
 }
 
 fn filter_buildins(name: String, groups: Vec<AlternativeGroup>) -> AlternativeGroup {
-    let mut rv = create_builtin(name.clone(),Vec::new());
+    let mut rv = AlternativeGroup::new_builtin(name.clone(),Vec::new());
     for a_g in groups {
-        if alternative_group_get_name(&a_g) == name {
+        if a_g.get_name() == name {
             rv = a_g.clone();
         }
     }
     return rv;
+}
+
+/*
+ * Returns the alternative with highest priority
+ * If the list of alternatives is empty returns none
+ * Undefined behavior when there are multiple alternatives with the smae prio
+ */
+fn highest_prio(alts: Vec<Alternative>) -> Option<Alternative> {
+    if alts.len() == 0 {
+        return None;
+    }
+    return None;
+
 }
 
 //reads a single DB file and returns a list of of structs for each NAME entry
@@ -328,7 +355,7 @@ fn main() {
             println!("Name: {:?}, Path: {:?}", name, path);
             //Parse the arguments
             let followers = unwrap_followers(follower);
-            let alt = create_alternative(link.to_string(),path.to_string(),*priority,followers);
+            let alt = Alternative::new(link.to_string(),path.to_string(),*priority,followers);
             //Read the bultin DB file
             let mut built_in_db = read_config(BUILT_IN_DB_PATH.to_string());
             //Find the correct alternative group
@@ -338,9 +365,9 @@ fn main() {
             // check whether the alternative group with given name already exists and update it
             // Maybe TODO check for duplicit entries in the same alternative group
             for a_g in &mut built_in_db {
-                if alternative_group_get_name(&a_g) == name.to_string() {
+                if a_g.get_name() == name.to_string() {
                     println!("Alternative Group Found!: {:?}", a_g);
-                    append_alternative (a_g, alt.clone());
+                    a_g.append_alternative (alt.clone());
                     done = true;
                     break;
                 }
@@ -348,7 +375,7 @@ fn main() {
 
             // this is a new alternative group = create it and append it
             if done == false {
-                let new_alt_group = create_builtin(name.to_string(), [alt.clone()].to_vec());
+                let new_alt_group = AlternativeGroup::new_builtin(name.to_string(), [alt.clone()].to_vec());
                 built_in_db.push(new_alt_group);
                 println!("Alternative Group Not Found!: {:?}", built_in_db);
 
