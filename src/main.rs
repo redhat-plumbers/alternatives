@@ -136,6 +136,49 @@ impl AlternativeGroup {
         }
     }
 
+    fn remove_alternative (&mut self, path: String) {
+        let mut alternatives = match self {
+            AlternativeGroup::DropIn (group) => &mut group.alternatives,
+            AlternativeGroup::BuiltIn (group) => &mut group.alternatives,
+        };
+        //TODO Later: use extract_if instead -> currently marked as "nightly-only experimental API"
+        //_ = alternatives.extract_if(|x| x.get_path() == path);
+        let mut i = 0;
+        while i < alternatives.len() {
+            if alternatives[i].get_path().clone() == path {
+                _ = alternatives.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+
+    }
+
+    fn set_auto_mode (&mut self) {
+        match self {
+            AlternativeGroup::DropIn (_) => {},
+            AlternativeGroup::BuiltIn (ref mut group) => group.mode = "Auto".to_string(),
+        };
+    }
+
+    fn set_manual_mode (&mut self, path: String) {
+        match self {
+            AlternativeGroup::DropIn (_) => {},
+            AlternativeGroup::BuiltIn (ref mut group) => {
+                group.mode = "Manual".to_string();
+                group.manualPath = path;
+            },
+        };
+    }
+
+    fn get_manual_path (&self) -> String {
+        let rv = match self {
+            AlternativeGroup::DropIn (_) => "".to_string(),
+            AlternativeGroup::BuiltIn (group) => group.manualPath.clone(),
+        };
+        return rv.clone();
+    }
+
     fn get_mode (&self) -> String {
         let rv = match self {
             AlternativeGroup::DropIn (_) => "Auto".to_string(),
@@ -254,7 +297,7 @@ fn filter_buildins(name: &String, groups: Vec<AlternativeGroup>) -> Option<Alter
 }
 
 /*
- * Returns the alternative with highest priority
+ * Returns the alternative with highest priority (Return it as a single element vector)
  * If the list of alternatives is empty returns none
  * Undefined behavior when there are multiple alternatives with the same prio
  */
@@ -276,30 +319,41 @@ fn highest_prio(alts: &Vec<Alternative>) -> Option<&Alternative> {
     }
 }
 
+fn manual_prio(alts: &Vec<Alternative>, path: String) -> Option<&Alternative>{
+    for alt in alts {
+        if *alt.get_path() == path {
+            return Some(alt);
+        }
+    }
+    return None;
+}
+
 /*
  * This is a top level function that deals with symlink updates for an alternative group set to auto
  * 1. read the config files, if there's no match in hte builtin file, create a new alternative group
  *
  */
-fn auto_update (name: &String, buildins_path: &String, dropins_path: &String) {
+fn update_links (name: &String, buildins_path: &String, dropins_path: &String) {
     let builtins = filter_buildins(name, read_config(buildins_path));
     let dropins = merge_dropins(name, read_dropins(dropins_path));
     match builtins {
         None => {panic!("Reached the unreachable!");} //This should be unreachable branch
         Some(builtin) => {
-            if builtin.get_mode().to_lowercase() == "auto".to_string() {
-                let mut alternatives = builtin.get_alternatives();
-                if let Some(dropins) = dropins { // are there any dropins?
-                    alternatives.append(&mut dropins.get_alternatives()); //append them
-                }
-                println!("List of all alternatives (Builtins + dropins): {:?}",alternatives); //TODO debug text
-                let best_alt = highest_prio(&alternatives);
-                for (fst,snd) in best_alt.expect("No alternative found for the alternative group").create_links() {
-                    create_symlinks(fst,snd);
-                }
+            let mut alternatives = builtin.get_alternatives();
+            if let Some(dropins) = dropins { // are there any dropins?
+                alternatives.append(&mut dropins.get_alternatives()); //append them
+            }
+            println!("List of all alternatives (Builtins + dropins): {:?}",alternatives); //TODO debug text
+            let best_alt: Option<&Alternative> = if builtin.get_mode().to_lowercase() == "auto".to_string() {
+                // group is in auto mode
+                 highest_prio(&alternatives)
             }
             else {
-                //do nothing - group is set to manual
+                // Group is in the manual mode
+                manual_prio(&alternatives, builtin.get_manual_path())
+            };
+            for (fst,snd) in best_alt.expect("No alternative found for the alternative group").create_links() {
+                create_symlinks(fst,snd);
             }
 
         }
@@ -424,8 +478,6 @@ fn main() {
              * 4. Write the modified DB file, if the the alternative group is set to manual then end else:
              * 5. Run the quivalent of the AUTO branch
              */
-            println!("In the Install Branch!");
-            println!("Name: {:?}, Path: {:?}", name, path);
             //Parse the arguments
             let followers = unwrap_followers(follower);
             let alt = Alternative::new(link.to_string(),path.to_string(),*priority,followers);
@@ -439,7 +491,6 @@ fn main() {
             // Maybe TODO check for duplicit entries in the same alternative group
             for a_g in &mut built_in_db {
                 if a_g.get_name() == name.to_string() {
-                    println!("Alternative Group Found!: {:?}", a_g); // TODO debug
                     a_g.append_alternative (alt.clone());
                     done = true;
                     break;
@@ -450,12 +501,11 @@ fn main() {
             if done == false {
                 let new_alt_group = AlternativeGroup::new_builtin(name.to_string(), [alt.clone()].to_vec());
                 built_in_db.push(new_alt_group);
-                println!("Alternative Group Not Found!: {:?}", built_in_db); //TODO debug
-
             }
+
             write_config(&BUILT_IN_DB_PATH.to_string(),built_in_db);
             // if the alternative group is se to auto - check the priorites and update the symlinks
-            auto_update(name, &BUILT_IN_DB_PATH.to_string(), &DROP_IN_DIR_PATH.to_string());
+            update_links(name, &BUILT_IN_DB_PATH.to_string(), &DROP_IN_DIR_PATH.to_string());
         }
         Commands::Display {
             ref name,
@@ -466,12 +516,38 @@ fn main() {
             println!("Drop ins:\n {:?}", merge_dropins(name, dropins));
         }
         Commands::Auto { ref name} => {
-            println!("In the Auto Branch!");
-            auto_update(name, &BUILT_IN_DB_PATH.to_string(), &DROP_IN_DIR_PATH.to_string());
+            let mut built_in_db = read_config(&BUILT_IN_DB_PATH.to_string());
+            for a_g in &mut built_in_db {
+                if a_g.get_name() == name.to_string() {
+                    a_g.set_auto_mode();
+                }
+            }
+            write_config(&BUILT_IN_DB_PATH.to_string(),built_in_db);
+
+            update_links(name, &BUILT_IN_DB_PATH.to_string(), &DROP_IN_DIR_PATH.to_string());
+        }
+        Commands::Set { ref name, ref path} => {
+            let mut built_in_db = read_config(&BUILT_IN_DB_PATH.to_string());
+            for a_g in &mut built_in_db {
+                if a_g.get_name() == name.to_string() {
+                    a_g.set_manual_mode(path.clone());
+                }
+            }
+            write_config(&BUILT_IN_DB_PATH.to_string(),built_in_db);
+
+            update_links(name, &BUILT_IN_DB_PATH.to_string(), &DROP_IN_DIR_PATH.to_string());
         }
         Commands::Remove { ref name, ref path } => {
-            println!("In the remove Branch!");
-            println!("Name: {:?}, Path: {:?}", name, path)
+            let mut built_in_db = read_config(&BUILT_IN_DB_PATH.to_string());
+
+            for a_g in &mut built_in_db {
+                if a_g.get_name() == name.to_string() {
+                    a_g.remove_alternative (path.clone());
+                }
+            }
+            write_config(&BUILT_IN_DB_PATH.to_string(),built_in_db);
+            update_links(name, &BUILT_IN_DB_PATH.to_string(), &DROP_IN_DIR_PATH.to_string());
+
         }
         _ => println!("We've got a problem"),
     };
